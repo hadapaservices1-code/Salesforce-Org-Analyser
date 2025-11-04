@@ -3,7 +3,7 @@ import { scanOrgInfo } from './inventory/org';
 import { scanSchema, scanPicklists, scanRecordTypes } from './inventory/schema';
 import { scanFlows, scanTriggers, scanValidationRules } from './inventory/automation';
 import { scanReports, scanDashboards, scanLayouts } from './inventory/reporting';
-import { scanProfiles, scanRoles, scanQueues, scanSharingRules } from './inventory/ownership';
+import { scanProfiles, scanRoles, scanQueues, scanSharingRules, scanPermissionSets } from './inventory/ownership';
 import { detectAutonumberBlockers } from './scanners/autonumber';
 import { detectAutomationDensityBlockers } from './scanners/automationDensity';
 import { detectLargeObjectBlockers } from './scanners/largeObjects';
@@ -28,6 +28,7 @@ export async function composeScan(auth: SalesforceAuth): Promise<ScanOutput> {
       roles,
       queues,
       sharingRules,
+      permissionSets,
       reports,
       dashboards,
       layouts,
@@ -43,6 +44,7 @@ export async function composeScan(auth: SalesforceAuth): Promise<ScanOutput> {
       scanRoles(auth),
       scanQueues(auth),
       scanSharingRules(auth),
+      scanPermissionSets(auth),
       scanReports(auth),
       scanDashboards(auth),
       scanLayouts(auth),
@@ -71,6 +73,7 @@ export async function composeScan(auth: SalesforceAuth): Promise<ScanOutput> {
       roles,
       queues,
       sharingRules,
+      permissionSets,
       reports,
       dashboards,
       layouts,

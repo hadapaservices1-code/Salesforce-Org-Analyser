@@ -1,4 +1,4 @@
-import { SalesforceAuth, ProfileMetadata, RoleMetadata, QueueMetadata, SharingRuleMetadata } from '@/lib/types';
+import { SalesforceAuth, ProfileMetadata, RoleMetadata, QueueMetadata, SharingRuleMetadata, PermissionSetMetadata } from '@/lib/types';
 import { sfQuery } from '../salesforce/tooling';
 import { logger } from '@/lib/logger';
 
@@ -104,6 +104,47 @@ export async function scanSharingRules(auth: SalesforceAuth): Promise<SharingRul
     return [];
   } catch (error) {
     logger.error({ error }, 'Failed to scan sharing rules');
+    return [];
+  }
+}
+
+export async function scanPermissionSets(auth: SalesforceAuth): Promise<PermissionSetMetadata[]> {
+  try {
+    const permissionSets = await sfQuery(auth,
+      "SELECT Id, Name, Label, Description, LicenseId FROM PermissionSet WHERE IsCustom = true"
+    );
+
+    const permissionSetList: PermissionSetMetadata[] = [];
+
+    for (const ps of permissionSets) {
+      try {
+        // Count users assigned to this permission set
+        let userCount = 0;
+        try {
+          const userCountQuery = await sfQuery(auth,
+            `SELECT COUNT() FROM PermissionSetAssignment WHERE PermissionSetId = '${ps.Id}' AND Assignee.IsActive = true`
+          );
+          userCount = userCountQuery?.[0]?.expr0 || 0;
+        } catch (error) {
+          logger.debug({ permissionSet: ps.Id, error }, 'Failed to count permission set users');
+        }
+
+        permissionSetList.push({
+          id: ps.Id,
+          name: ps.Name,
+          label: ps.Label || ps.Name,
+          description: ps.Description || undefined,
+          userCount,
+          license: ps.LicenseId || undefined,
+        });
+      } catch (error) {
+        logger.debug({ permissionSet: ps, error }, 'Failed to process permission set');
+      }
+    }
+
+    return permissionSetList;
+  } catch (error) {
+    logger.error({ error }, 'Failed to scan permission sets');
     return [];
   }
 }

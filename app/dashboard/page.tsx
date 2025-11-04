@@ -47,6 +47,8 @@ export default function DashboardPage() {
   const [isScanning, setIsScanning] = useState(false);
   const [currentScan, setCurrentScan] = useState<ScanOutput | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanProgress, setScanProgress] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     orgName?: string;
@@ -67,16 +69,38 @@ export default function DashboardPage() {
 
   const handleScan = async () => {
     setIsScanning(true);
+    setScanError(null);
+    setScanProgress('Initializing scan...');
+    
     try {
       const response = await fetch('/api/scan', { method: 'POST' });
       const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Scan failed');
+      }
+      
       if (data.scan) {
+        setScanProgress('Scan completed! Loading results...');
         setCurrentScan(data.scan);
+        // Refresh scans list and other data
         mutate();
+        // Also refresh connection status to show updated org info
+        setTimeout(() => {
+          setScanProgress('');
+          setIsScanning(false);
+        }, 1000);
+      } else {
+        throw new Error(data.message || 'Scan completed but no data returned');
       }
     } catch (error) {
       console.error('Scan failed:', error);
-    } finally {
+      setScanError(
+        error instanceof Error 
+          ? error.message 
+          : 'Failed to scan org. Please check your connection and try again.'
+      );
+      setScanProgress('');
       setIsScanning(false);
     }
   };
@@ -197,13 +221,34 @@ export default function DashboardPage() {
           <div className="text-center py-12">
             <p className="text-gray-600 mb-4">
               {connectionStatus?.connected 
-                ? 'No scan data available' 
-                : 'Connect to Salesforce to start scanning'}
+                ? 'No scan data available. Run your first scan to analyze your Salesforce org.' 
+                : 'Connect to Salesforce to start scanning your org'}
             </p>
+            
+            {/* Scan Error Message */}
+            {scanError && (
+              <div className="max-w-md mx-auto mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{scanError}</p>
+              </div>
+            )}
+            
+            {/* Scan Progress */}
+            {isScanning && scanProgress && (
+              <div className="max-w-md mx-auto mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+                  <p className="text-sm text-blue-800">{scanProgress}</p>
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  This may take a few minutes depending on your org size...
+                </p>
+              </div>
+            )}
+            
             <button
               onClick={handleScan}
               disabled={isScanning || !connectionStatus?.connected}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium"
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
             >
               {isScanning 
                 ? 'Scanning...' 
@@ -211,6 +256,12 @@ export default function DashboardPage() {
                   ? 'Start Your First Scan' 
                   : 'Connect to Start Scanning'}
             </button>
+            
+            {connectionStatus?.connected && !isScanning && (
+              <p className="text-xs text-gray-500 mt-4">
+                The scan will collect org info, ALL objects and fields, automations, profiles, roles, and more.
+              </p>
+            )}
           </div>
         </div>
       ) : (
@@ -282,12 +333,32 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Scan Error Message */}
+            {scanError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{scanError}</p>
+              </div>
+            )}
+            
+            {/* Scan Progress */}
+            {isScanning && scanProgress && (
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-3"></div>
+                  <p className="text-sm text-blue-800">{scanProgress}</p>
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  This may take a few minutes depending on your org size...
+                </p>
+              </div>
+            )}
+            
             {/* Actions */}
             <div className="flex gap-4 mb-6">
               <button
                 onClick={handleScan}
-                disabled={isScanning}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium"
+                disabled={isScanning || !connectionStatus?.connected}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
               >
                 {isScanning ? 'Scanning...' : 'Run New Scan'}
               </button>

@@ -124,6 +124,15 @@ export interface SharingRuleMetadata {
   criteria?: string;
 }
 
+export interface PermissionSetMetadata {
+  id: string;
+  name: string;
+  label: string;
+  description?: string;
+  userCount: number;
+  license?: string;
+}
+
 // Migration Blocker Types
 export interface MigrationBlocker {
   type: 'autonumber' | 'automation_density' | 'large_object' | 'profile_mismatch';
@@ -146,6 +155,7 @@ export interface ScanOutput {
   roles: RoleMetadata[];
   queues: QueueMetadata[];
   sharingRules: SharingRuleMetadata[];
+  permissionSets: PermissionSetMetadata[];
   reports: ReportMetadata[];
   dashboards: DashboardMetadata[];
   layouts: LayoutMetadata[];

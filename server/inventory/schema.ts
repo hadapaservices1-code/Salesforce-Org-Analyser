@@ -8,10 +8,10 @@ export async function scanSchema(auth: SalesforceAuth): Promise<ObjectMetadata[]
     const objectNames = await describeGlobal(auth);
     const objects: ObjectMetadata[] = [];
 
-    // Limit to first 100 objects to avoid timeout
-    const objectsToScan = objectNames.slice(0, 100);
+    logger.info({ totalObjects: objectNames.length }, 'Scanning all objects');
 
-    for (const objectName of objectsToScan) {
+    // Scan all objects (no limit)
+    for (const objectName of objectNames) {
       try {
         const describe = await describeSObject(auth, objectName);
         
@@ -68,7 +68,10 @@ export async function scanPicklists(auth: SalesforceAuth): Promise<Record<string
   try {
     const objects = await describeGlobal(auth);
     
-    for (const objectName of objects.slice(0, 50)) {
+    logger.info({ totalObjects: objects.length }, 'Scanning picklists for all objects');
+    
+    // Scan picklists for all objects (no limit)
+    for (const objectName of objects) {
       try {
         const describe = await describeSObject(auth, objectName);
         
