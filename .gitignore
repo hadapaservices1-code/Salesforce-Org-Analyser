@@ -34,4 +34,5 @@ yarn-error.log*
 next-env.d.ts
 
 # drizzle
-/drizzle
+# Keep migrations but ignore generated files
+/drizzle/meta
