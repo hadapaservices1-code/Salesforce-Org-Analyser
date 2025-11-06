@@ -5,12 +5,11 @@ import useSWR from 'swr';
 import Card from '@/components/Card';
 import { formatNumber } from '@/lib/utils';
 import {
-  BuildingOfficeIcon,
   UsersIcon,
-  ServerIcon,
   ChartBarIcon,
   KeyIcon,
   ShieldCheckIcon,
+  HomeIcon,
 } from '@heroicons/react/24/outline';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -97,7 +96,7 @@ export default function OrgInfoPage() {
         {/* Basic Info Card */}
         <Card className="mb-6">
           <div className="flex items-center mb-4">
-            <BuildingOfficeIcon className="h-6 w-6 text-blue-600 mr-2" />
+            <HomeIcon className="h-6 w-6 text-blue-600 mr-2" />
             <h2 className="text-xl font-medium text-gray-900">Organization Details</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -16,7 +16,9 @@ if (!connectionString) {
 
 const client = postgres(connectionString, {
   ssl: 'require',
-  max: 1,
+  max: 10, // Increased connection pool for better performance
+  idle_timeout: 20, // Close idle connections after 20 seconds
+  connect_timeout: 10, // Connection timeout
 });
 
 export const db = drizzle(client, { schema });

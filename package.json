@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate:pg",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "drizzle-kit up:pg",
     "db:init": "curl -X POST http://localhost:3000/api/db/init || echo 'Server must be running. Start with: npm run dev'",
     "db:studio": "drizzle-kit studio"
   },
@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "critters": "^0.0.23",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.0.0"
   }

@@ -5,8 +5,13 @@ const API_VERSION = process.env.API_VERSION || 'v60.0';
 
 export async function sfQuery(
   auth: SalesforceAuth,
-  soql: string
+  soql: string,
+  abortSignal?: AbortSignal
 ): Promise<any[]> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = `${auth.instanceUrl}/services/data/${API_VERSION}/query?q=${encodeURIComponent(soql)}`;
 
   const response = await fetch(url.toString(), {
@@ -15,6 +20,7 @@ export async function sfQuery(
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json',
     },
+    signal: abortSignal,
   });
 
   if (!response.ok) {
@@ -28,12 +34,16 @@ export async function sfQuery(
 
   // Handle pagination
   if (data.nextRecordsUrl) {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
     const nextUrl = `${auth.instanceUrl}${data.nextRecordsUrl}`;
     const nextResponse = await fetch(nextUrl, {
       headers: {
         Authorization: `Bearer ${auth.accessToken}`,
         'Content-Type': 'application/json',
       },
+      signal: abortSignal,
     });
     
     if (nextResponse.ok) {
@@ -47,8 +57,13 @@ export async function sfQuery(
 
 export async function sfToolingQuery(
   auth: SalesforceAuth,
-  soql: string
+  soql: string,
+  abortSignal?: AbortSignal
 ): Promise<any[]> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = `${auth.instanceUrl}/services/data/${API_VERSION}/tooling/query?q=${encodeURIComponent(soql)}`;
 
   const response = await fetch(url.toString(), {
@@ -57,6 +72,7 @@ export async function sfToolingQuery(
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json',
     },
+    signal: abortSignal,
   });
 
   if (!response.ok) {

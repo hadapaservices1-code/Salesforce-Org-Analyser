@@ -1,11 +1,19 @@
 import { SalesforceAuth, FlowMetadata, TriggerMetadata, ValidationRuleMetadata } from '@/lib/types';
 import { sfToolingQuery } from '../salesforce/tooling';
 import { logger } from '@/lib/logger';
+import { ProgressCallback } from '../composeScan';
 
-export async function scanFlows(auth: SalesforceAuth): Promise<FlowMetadata[]> {
+export async function scanFlows(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<FlowMetadata[]> {
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    if (onProgress) {
+      onProgress('Scanning flows...');
+    }
     const flows = await sfToolingQuery(auth,
-      "SELECT Id, MasterLabel, DeveloperName, Status, VersionNumber FROM Flow WHERE IsActive = true"
+      "SELECT Id, MasterLabel, DeveloperName, Status, VersionNumber FROM Flow WHERE IsActive = true",
+      abortSignal
     );
 
     return flows.map((flow: any) => ({
@@ -16,15 +24,25 @@ export async function scanFlows(auth: SalesforceAuth): Promise<FlowMetadata[]> {
       version: flow.VersionNumber || 1,
     }));
   } catch (error) {
+    if (error instanceof Error && error.message === 'Scan cancelled by user') {
+      throw error;
+    }
     logger.error({ error }, 'Failed to scan flows');
     return [];
   }
 }
 
-export async function scanTriggers(auth: SalesforceAuth): Promise<TriggerMetadata[]> {
+export async function scanTriggers(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<TriggerMetadata[]> {
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    if (onProgress) {
+      onProgress('Scanning triggers...');
+    }
     const triggers = await sfToolingQuery(auth,
-      "SELECT Name, TableEnumOrId, Status, BodyLength FROM ApexTrigger WHERE Status = 'Active'"
+      "SELECT Name, TableEnumOrId, Status, BodyLength FROM ApexTrigger WHERE Status = 'Active'",
+      abortSignal
     );
 
     return triggers.map((trigger: any) => ({
@@ -34,15 +52,25 @@ export async function scanTriggers(auth: SalesforceAuth): Promise<TriggerMetadat
       bodyLength: trigger.BodyLength || 0,
     }));
   } catch (error) {
+    if (error instanceof Error && error.message === 'Scan cancelled by user') {
+      throw error;
+    }
     logger.error({ error }, 'Failed to scan triggers');
     return [];
   }
 }
 
-export async function scanValidationRules(auth: SalesforceAuth): Promise<ValidationRuleMetadata[]> {
+export async function scanValidationRules(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<ValidationRuleMetadata[]> {
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    if (onProgress) {
+      onProgress('Scanning validation rules...');
+    }
     const rules = await sfToolingQuery(auth,
-      "SELECT DeveloperName, EntityDefinition.QualifiedApiName, ValidationName, Active, ErrorMessage FROM ValidationRule WHERE Active = true"
+      "SELECT DeveloperName, EntityDefinition.QualifiedApiName, ValidationName, Active, ErrorMessage FROM ValidationRule WHERE Active = true",
+      abortSignal
     );
 
     return rules.map((rule: any) => ({
@@ -52,6 +80,9 @@ export async function scanValidationRules(auth: SalesforceAuth): Promise<Validat
       errorMessage: rule.ErrorMessage || '',
     }));
   } catch (error) {
+    if (error instanceof Error && error.message === 'Scan cancelled by user') {
+      throw error;
+    }
     logger.error({ error }, 'Failed to scan validation rules');
     return [];
   }

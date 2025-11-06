@@ -149,3 +149,118 @@ export async function refreshAccessToken(
     throw error;
   }
 }
+
+export async function loginWithSOAP(
+  username: string,
+  password: string,
+  securityToken: string = '',
+  isSandbox: boolean = false
+): Promise<SalesforceAuth> {
+  const baseUrl = isSandbox 
+    ? (process.env.SF_SANDBOX_LOGIN_URL || 'https://test.salesforce.com')
+    : (process.env.SF_LOGIN_URL || 'https://login.salesforce.com');
+  
+  // Use the latest supported SOAP API version (60.0) or fallback to 59.0
+  const apiVersion = process.env.API_VERSION?.replace('v', '') || '60.0';
+  const soapUrl = `${baseUrl}/services/Soap/u/${apiVersion}`;
+  
+  // Combine password and security token if provided
+  // Note: If IP is whitelisted, security token is not required
+  const fullPassword = securityToken ? `${password}${securityToken}` : password;
+
+  // Escape XML special characters
+  const escapeXml = (str: string): string => {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  const soapBody = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">
+  <soapenv:Body>
+    <urn:login>
+      <urn:username>${escapeXml(username)}</urn:username>
+      <urn:password>${escapeXml(fullPassword)}</urn:password>
+    </urn:login>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+  try {
+    logger.info({ username, isSandbox, hasSecurityToken: !!securityToken }, 'SOAP login attempt');
+
+    const response = await fetch(soapUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=UTF-8',
+        'SOAPAction': 'login',
+      },
+      body: soapBody,
+    });
+
+    const xmlText = await response.text();
+
+    // Check for SOAP faults first (SOAP can return 200 OK with faults in body)
+    const faultMatch = xmlText.match(/<faultstring[^>]*>(.*?)<\/faultstring>/i);
+    if (faultMatch) {
+      const errorMessage = faultMatch[1].trim();
+      logger.error({ error: errorMessage, status: response.status, xmlText: xmlText.substring(0, 500) }, 'SOAP login fault');
+      
+      // Provide user-friendly error messages
+      let userMessage = errorMessage;
+      if (errorMessage.includes('INVALID_LOGIN')) {
+        userMessage = 'Invalid username, password, or security token. Please verify your credentials.';
+      } else if (errorMessage.includes('LOGIN_MUST_USE_SECURITY_TOKEN')) {
+        userMessage = 'Security token is required. Please enter your security token or whitelist your IP address in Salesforce.';
+      } else if (errorMessage.includes('INVALID_CREDENTIALS')) {
+        userMessage = 'Invalid credentials. Please check your username and password.';
+      } else if (errorMessage.includes('REQUEST_LIMIT_EXCEEDED')) {
+        userMessage = 'Your Salesforce org has exceeded its API request limit. Please wait a few minutes and try again, or contact your Salesforce administrator to check your org limits.';
+      }
+      
+      throw new Error(userMessage);
+    }
+
+    if (!response.ok) {
+      const errorMessage = `SOAP login failed: ${response.status} ${response.statusText}`;
+      logger.error({ error: errorMessage, status: response.status, xmlText: xmlText.substring(0, 500) }, 'SOAP login HTTP error');
+      throw new Error(errorMessage);
+    }
+
+    // Parse sessionId from response (handle different namespace variations)
+    const sessionIdMatch = xmlText.match(/<sessionId[^>]*>(.*?)<\/sessionId>/i);
+    const serverUrlMatch = xmlText.match(/<serverUrl[^>]*>(.*?)<\/serverUrl>/i);
+    const userIdMatch = xmlText.match(/<userId[^>]*>(.*?)<\/userId>/i);
+
+    if (!sessionIdMatch || !serverUrlMatch) {
+      logger.error({ xmlText: xmlText.substring(0, 1000) }, 'Invalid SOAP response structure');
+      throw new Error('Invalid SOAP response: missing sessionId or serverUrl. Please check the server logs for details.');
+    }
+
+    const sessionId = sessionIdMatch[1].trim();
+    let serverUrl = serverUrlMatch[1].trim();
+    
+    // Extract base URL from serverUrl (remove /services/Soap/u/XX.X)
+    serverUrl = serverUrl.replace(/\/services\/Soap\/u\/\d+\.\d+.*$/, '');
+
+    logger.info({ instanceUrl: serverUrl, username, userId: userIdMatch?.[1]?.trim() }, 'SOAP login successful');
+
+    return {
+      accessToken: sessionId,
+      instanceUrl: serverUrl,
+      refreshToken: undefined, // SOAP doesn't provide refresh token
+    };
+  } catch (error) {
+    logger.error({ error, username, isSandbox }, 'Failed to login with SOAP');
+    
+    // Re-throw with better error message if it's already an Error
+    if (error instanceof Error) {
+      throw error;
+    }
+    
+    throw new Error(`SOAP login failed: ${String(error)}`);
+  }
+}

@@ -2,14 +2,32 @@ import { NextResponse } from 'next/server';
 import { getSalesforceAuth } from '@/lib/session';
 import { sfGet } from '@/server/salesforce/rest';
 
+// Cache status for 2 minutes to reduce API calls
+const CACHE_TTL = 120000; // 2 minutes
+let cachedStatus: { data: any; timestamp: number } | null = null;
+
 export async function GET() {
+  // Return cached response if still valid
+  if (cachedStatus && Date.now() - cachedStatus.timestamp < CACHE_TTL) {
+    return NextResponse.json(cachedStatus.data, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60',
+      },
+    });
+  }
   try {
     const auth = await getSalesforceAuth();
     
     if (!auth) {
-      return NextResponse.json({
+      const response = {
         connected: false,
         message: 'Not connected to Salesforce',
+      };
+      cachedStatus = { data: response, timestamp: Date.now() };
+      return NextResponse.json(response, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60',
+        },
       });
     }
 
@@ -33,7 +51,7 @@ export async function GET() {
           // Ignore describe errors
         }
         
-        return NextResponse.json({
+        const response = {
           connected: true,
           instanceUrl: auth.instanceUrl,
           orgId: org.Id || 'Unknown',
@@ -41,14 +59,26 @@ export async function GET() {
           edition: edition,
           organizationType: org.OrganizationType || 'Unknown',
           message: 'Successfully connected to Salesforce',
+        };
+        cachedStatus = { data: response, timestamp: Date.now() };
+        return NextResponse.json(response, {
+          headers: {
+            'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60',
+          },
         });
       } else {
         // Even if we can't get org details, connection is valid
-        return NextResponse.json({
+        const response = {
           connected: true,
           instanceUrl: auth.instanceUrl,
           orgName: 'Salesforce Org',
           message: 'Successfully connected to Salesforce',
+        };
+        cachedStatus = { data: response, timestamp: Date.now() };
+        return NextResponse.json(response, {
+          headers: {
+            'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60',
+          },
         });
       }
     } catch (error: any) {
@@ -57,26 +87,46 @@ export async function GET() {
       
       // If it's just a field error but we have auth, still consider it connected
       if (errorMessage.includes('INVALID_FIELD') || errorMessage.includes('No such column')) {
-        return NextResponse.json({
+        const response = {
           connected: true,
           instanceUrl: auth.instanceUrl,
           orgName: 'Salesforce Org',
           message: 'Successfully connected to Salesforce (some org details unavailable)',
+        };
+        cachedStatus = { data: response, timestamp: Date.now() };
+        return NextResponse.json(response, {
+          headers: {
+            'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60',
+          },
         });
       }
       
       // Token might be expired or invalid
-      return NextResponse.json({
+      const errorResponse = {
         connected: false,
         message: 'Connection test failed. Token may be expired.',
         error: errorMessage,
-      }, { status: 401 });
+      };
+      cachedStatus = { data: errorResponse, timestamp: Date.now() };
+      return NextResponse.json(errorResponse, { 
+        status: 401,
+        headers: {
+          'Cache-Control': 'public, s-maxage=60',
+        },
+      });
     }
   } catch (error) {
-    return NextResponse.json({
+    const errorResponse = {
       connected: false,
       message: 'Error checking connection status',
       error: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
+    };
+    cachedStatus = { data: errorResponse, timestamp: Date.now() };
+    return NextResponse.json(errorResponse, { 
+      status: 500,
+      headers: {
+        'Cache-Control': 'public, s-maxage=60',
+      },
+    });
   }
 }

@@ -4,7 +4,11 @@ import { sfPost } from './rest';
 
 const API_VERSION = process.env.API_VERSION || 'v60.0';
 
-export async function describeGlobal(auth: SalesforceAuth): Promise<string[]> {
+export async function describeGlobal(auth: SalesforceAuth, abortSignal?: AbortSignal): Promise<string[]> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = `${auth.instanceUrl}/services/data/${API_VERSION}/sobjects/`;
   
   const response = await fetch(url.toString(), {
@@ -13,6 +17,7 @@ export async function describeGlobal(auth: SalesforceAuth): Promise<string[]> {
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json',
     },
+    signal: abortSignal,
   });
 
   if (!response.ok) {
@@ -25,7 +30,11 @@ export async function describeGlobal(auth: SalesforceAuth): Promise<string[]> {
   return data.sobjects?.map((obj: any) => obj.name) || [];
 }
 
-export async function describeSObject(auth: SalesforceAuth, sobject: string): Promise<any> {
+export async function describeSObject(auth: SalesforceAuth, sobject: string, abortSignal?: AbortSignal): Promise<any> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = `${auth.instanceUrl}/services/data/${API_VERSION}/sobjects/${sobject}/describe/`;
   
   const response = await fetch(url.toString(), {
@@ -34,6 +43,7 @@ export async function describeSObject(auth: SalesforceAuth, sobject: string): Pr
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json',
     },
+    signal: abortSignal,
   });
 
   if (!response.ok) {
@@ -48,8 +58,13 @@ export async function describeSObject(auth: SalesforceAuth, sobject: string): Pr
 export async function listMetadata(
   auth: SalesforceAuth,
   metadataType: string,
-  folder?: string
+  folder?: string,
+  abortSignal?: AbortSignal
 ): Promise<any[]> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const body = {
     type: metadataType,
     ...(folder && { folder }),
@@ -59,7 +74,7 @@ export async function listMetadata(
     const response = await sfPost(auth, '/services/data/v60.0/tooling/sobjects/MetadataContainer/', {
       method: 'listMetadata',
       ...body,
-    });
+    }, abortSignal);
     return response || [];
   } catch (error) {
     // Fallback to REST API if Tooling API fails

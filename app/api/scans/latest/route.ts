@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, schema } from '@/lib/db';
-import { eq, desc } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 import { getSalesforceAuth } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
@@ -14,22 +14,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get org ID from auth
-    // For now, get all scans (would filter by org in production)
     try {
-      // Only fetch metadata, not full rawJson to reduce payload size
-      const scans = await db.query.scans.findMany({
+      // Get only the latest scan with full rawJson
+      const latestScan = await db.query.scans.findFirst({
         orderBy: [desc(schema.scans.createdAt)],
-        limit: 50,
-        columns: {
-          id: true,
-          orgId: true,
-          createdAt: true,
-          // Exclude rawJson from initial fetch - it's large and only needed when viewing details
-        },
       });
 
-      return NextResponse.json({ scans }, {
+      if (!latestScan) {
+        return NextResponse.json({ scan: null });
+      }
+
+      return NextResponse.json({ scan: latestScan }, {
         headers: {
           'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60, max-age=60',
           'X-Content-Type-Options': 'nosniff',
@@ -43,16 +38,10 @@ export async function GET(request: NextRequest) {
         
         if (initialized) {
           // Retry after initialization
-          const scans = await db.query.scans.findMany({
+          const latestScan = await db.query.scans.findFirst({
             orderBy: [desc(schema.scans.createdAt)],
-            limit: 50,
-            columns: {
-              id: true,
-              orgId: true,
-              createdAt: true,
-            },
           });
-          return NextResponse.json({ scans }, {
+          return NextResponse.json({ scan: latestScan || null }, {
             headers: {
               'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60, max-age=60',
               'X-Content-Type-Options': 'nosniff',
@@ -63,10 +52,11 @@ export async function GET(request: NextRequest) {
       throw dbError;
     }
   } catch (error) {
-    console.error('Scans list error:', error);
+    console.error('Latest scan error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch scans', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch latest scan', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
 }
+

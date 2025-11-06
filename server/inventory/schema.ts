@@ -2,25 +2,38 @@ import { SalesforceAuth, ObjectMetadata, FieldMetadata, RelationshipMetadata } f
 import { describeGlobal, describeSObject } from '../salesforce/metadata';
 import { sfQuery } from '../salesforce/tooling';
 import { logger } from '@/lib/logger';
+import { ProgressCallback } from '../composeScan';
 
-export async function scanSchema(auth: SalesforceAuth): Promise<ObjectMetadata[]> {
+export async function scanSchema(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<ObjectMetadata[]> {
   try {
-    const objectNames = await describeGlobal(auth);
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    const objectNames = await describeGlobal(auth, abortSignal);
     const objects: ObjectMetadata[] = [];
 
     logger.info({ totalObjects: objectNames.length }, 'Scanning all objects');
 
     // Scan all objects (no limit)
     for (const objectName of objectNames) {
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
+      if (onProgress) {
+        onProgress(`Scanning ${objectName}`);
+      }
       try {
-        const describe = await describeSObject(auth, objectName);
+        const describe = await describeSObject(auth, objectName, abortSignal);
         
         // Get record count
         let recordCount = 0;
         try {
-          const countQuery = await sfQuery(auth, `SELECT COUNT() FROM ${objectName}`);
+          const countQuery = await sfQuery(auth, `SELECT COUNT() FROM ${objectName}`, abortSignal);
           recordCount = countQuery?.[0]?.expr0 || 0;
         } catch (error) {
+          if (error instanceof Error && error.message === 'Scan cancelled by user') {
+            throw error;
+          }
           // Some objects may not be queryable
           logger.debug({ objectName, error }, 'Could not count records');
         }
@@ -51,6 +64,9 @@ export async function scanSchema(auth: SalesforceAuth): Promise<ObjectMetadata[]
           relationships,
         });
       } catch (error) {
+        if (error instanceof Error && error.message === 'Scan cancelled by user') {
+          throw error;
+        }
         logger.debug({ objectName, error }, 'Failed to describe object');
       }
     }
@@ -62,18 +78,27 @@ export async function scanSchema(auth: SalesforceAuth): Promise<ObjectMetadata[]
   }
 }
 
-export async function scanPicklists(auth: SalesforceAuth): Promise<Record<string, string[]>> {
+export async function scanPicklists(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<Record<string, string[]>> {
   const picklists: Record<string, string[]> = {};
   
   try {
-    const objects = await describeGlobal(auth);
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    const objects = await describeGlobal(auth, abortSignal);
     
     logger.info({ totalObjects: objects.length }, 'Scanning picklists for all objects');
     
     // Scan picklists for all objects (no limit)
     for (const objectName of objects) {
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
+      if (onProgress) {
+        onProgress(`Scanning picklists for ${objectName}`);
+      }
       try {
-        const describe = await describeSObject(auth, objectName);
+        const describe = await describeSObject(auth, objectName, abortSignal);
         
         for (const field of describe.fields || []) {
           if (field.type === 'picklist' && field.picklistValues) {
@@ -82,31 +107,50 @@ export async function scanPicklists(auth: SalesforceAuth): Promise<Record<string
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.message === 'Scan cancelled by user') {
+          throw error;
+        }
         logger.debug({ objectName, error }, 'Failed to get picklists for object');
       }
     }
   } catch (error) {
+    if (error instanceof Error && error.message === 'Scan cancelled by user') {
+      throw error;
+    }
     logger.error({ error }, 'Failed to scan picklists');
   }
 
   return picklists;
 }
 
-export async function scanRecordTypes(auth: SalesforceAuth): Promise<Record<string, string[]>> {
+export async function scanRecordTypes(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<Record<string, string[]>> {
   const recordTypes: Record<string, string[]> = {};
   
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    if (onProgress) {
+      onProgress('Scanning record types...');
+    }
     const rtData = await sfQuery(auth,
-      "SELECT SObjectType, DeveloperName FROM RecordType WHERE IsActive = true"
+      "SELECT SObjectType, DeveloperName FROM RecordType WHERE IsActive = true",
+      abortSignal
     );
 
     for (const rt of rtData) {
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
       if (!recordTypes[rt.SObjectType]) {
         recordTypes[rt.SObjectType] = [];
       }
       recordTypes[rt.SObjectType].push(rt.DeveloperName);
     }
   } catch (error) {
+    if (error instanceof Error && error.message === 'Scan cancelled by user') {
+      throw error;
+    }
     logger.error({ error }, 'Failed to scan record types');
   }
 

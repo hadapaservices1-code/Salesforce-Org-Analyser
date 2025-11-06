@@ -2,9 +2,17 @@ import { SalesforceAuth, OrgInfo } from '@/lib/types';
 import { sfGet } from '../salesforce/rest';
 import { sfQuery } from '../salesforce/tooling';
 import { logger } from '@/lib/logger';
+import { ProgressCallback } from '../composeScan';
 
-export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
+export async function scanOrgInfo(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<OrgInfo> {
   try {
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
+    if (onProgress) {
+      onProgress('Scanning org information...');
+    }
+
     // First, try to get org ID from identity endpoint (most reliable)
     let orgId = '';
     let orgName = '';
@@ -19,6 +27,7 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
           Authorization: `Bearer ${auth.accessToken}`,
           'Content-Type': 'application/json',
         },
+        signal: abortSignal,
       });
       
       if (identityResponse.ok) {
@@ -35,7 +44,10 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
     // Alternative: Try to get org ID from REST API query
     if (!orgId) {
       try {
-        const orgQueryResponse = await sfGet(auth, '/query/?q=SELECT+Id+FROM+Organization+LIMIT+1');
+        if (abortSignal?.aborted) {
+          throw new Error('Scan cancelled by user');
+        }
+        const orgQueryResponse = await sfGet(auth, '/query/?q=SELECT+Id+FROM+Organization+LIMIT+1', undefined, abortSignal);
         if (orgQueryResponse?.records && orgQueryResponse.records.length > 0) {
           orgId = orgQueryResponse.records[0].Id || '';
           if (orgId) {
@@ -43,13 +55,20 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.message === 'Scan cancelled by user') {
+          throw error;
+        }
         logger.warn({ error }, 'Failed to get org ID from REST API query');
       }
     }
 
     // Get organization details - Edition field is not available via SOQL in newer API versions
+    if (abortSignal?.aborted) {
+      throw new Error('Scan cancelled by user');
+    }
     const orgData = await sfQuery(auth, 
-      "SELECT Id, Name, OrganizationType, InstanceName FROM Organization LIMIT 1"
+      "SELECT Id, Name, OrganizationType, InstanceName FROM Organization LIMIT 1",
+      abortSignal
     );
     
     if (!orgData || orgData.length === 0) {
@@ -77,7 +96,10 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
     let edition = 'Unknown';
     
     try {
-      limitsResponse = await sfGet(auth, '/limits');
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
+      limitsResponse = await sfGet(auth, '/limits', undefined, abortSignal);
       
       // Try to infer edition from available limits or other indicators
       // Different editions have different limits available
@@ -109,20 +131,31 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
     // Get user count
     let userCount = 0;
     try {
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
       const userData = await sfQuery(auth, 
-        "SELECT COUNT() FROM User WHERE IsActive = true"
+        "SELECT COUNT() FROM User WHERE IsActive = true",
+        abortSignal
       );
       userCount = typeof userData?.[0]?.expr0 === 'number' ? userData[0].expr0 : 0;
     } catch (error) {
+      if (error instanceof Error && error.message === 'Scan cancelled by user') {
+        throw error;
+      }
       logger.warn({ error }, 'Failed to retrieve user count');
     }
 
     // Get license information
     const licenses: Record<string, { Total: number; Used: number }> = {};
     try {
+      if (abortSignal?.aborted) {
+        throw new Error('Scan cancelled by user');
+      }
       // UserLicense object query - Name field should be available
       const licenseData = await sfQuery(auth,
-        "SELECT Id, Name, Status, UsedLicenses, TotalLicenses FROM UserLicense WHERE Status = 'Active'"
+        "SELECT Id, Name, Status, UsedLicenses, TotalLicenses FROM UserLicense WHERE Status = 'Active'",
+        abortSignal
       );
       
       if (licenseData && licenseData.length > 0) {
@@ -139,18 +172,25 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
       // If no licenses found with Name, try alternative approach
       if (Object.keys(licenses).length === 0) {
         try {
+          if (abortSignal?.aborted) {
+            throw new Error('Scan cancelled by user');
+          }
           // Try to get licenses via REST API describe
-          const licenseDescribe = await sfGet(auth, '/sobjects/UserLicense/describe');
+          const licenseDescribe = await sfGet(auth, '/sobjects/UserLicense/describe', undefined, abortSignal);
           // Then query with all available fields
           const altLicenseData = await sfQuery(auth,
-            "SELECT Id, TotalLicenses, UsedLicenses FROM UserLicense WHERE Status = 'Active'"
+            "SELECT Id, TotalLicenses, UsedLicenses FROM UserLicense WHERE Status = 'Active'",
+            abortSignal
           );
           
           for (const license of altLicenseData) {
+            if (abortSignal?.aborted) {
+              throw new Error('Scan cancelled by user');
+            }
             if (license.Id) {
               try {
                 // Get individual license details
-                const licenseDetail = await sfGet(auth, `/sobjects/UserLicense/${license.Id}`);
+                const licenseDetail = await sfGet(auth, `/sobjects/UserLicense/${license.Id}`, undefined, abortSignal);
                 const licenseName = licenseDetail?.Name || licenseDetail?.MasterLabel || `License-${license.Id.substring(0, 8)}`;
                 licenses[licenseName] = {
                   Total: license.TotalLicenses || 0,
@@ -166,10 +206,16 @@ export async function scanOrgInfo(auth: SalesforceAuth): Promise<OrgInfo> {
             }
           }
         } catch (e) {
+          if (e instanceof Error && e.message === 'Scan cancelled by user') {
+            throw e;
+          }
           logger.warn({ error: e }, 'Alternative license query failed');
         }
       }
     } catch (error) {
+      if (error instanceof Error && error.message === 'Scan cancelled by user') {
+        throw error;
+      }
       logger.warn({ error }, 'Failed to retrieve license information');
     }
 

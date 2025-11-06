@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       const { generateAllScansExcel } = await import('@/server/reports/excelGenerator');
       const excelBuffer = generateAllScansExcel(scans.map(s => s.rawJson as ScanOutput));
 
-      return new NextResponse(excelBuffer, {
+      return new NextResponse(new Uint8Array(excelBuffer), {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="all-scans-${new Date().toISOString().split('T')[0]}.xlsx"`,
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 
     if (format === 'xlsx') {
       const excelBuffer = generateExcelReport(scanOutput, scanId);
-      return new NextResponse(excelBuffer, {
+      return new NextResponse(new Uint8Array(excelBuffer), {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="scan-${scanId}.xlsx"`,

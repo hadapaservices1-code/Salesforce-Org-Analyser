@@ -1,17 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
-export default function ConnectPage() {
+function ConnectForm() {
   const [isSandbox, setIsSandbox] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginMethod, setLoginMethod] = useState<'oauth' | 'soap'>('oauth');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [securityToken, setSecurityToken] = useState('');
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    if (!searchParams) return;
     const errorParam = searchParams.get('error');
     const errorDesc = searchParams.get('error_description');
     
@@ -38,7 +43,7 @@ export default function ConnectPage() {
     }
   }, [searchParams]);
 
-  const handleConnect = async () => {
+  const handleOAuthConnect = async () => {
     setIsLoading(true);
     setError(null);
 
@@ -65,6 +70,56 @@ export default function ConnectPage() {
     }
   };
 
+  const handleSOAPConnect = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    if (!username || !password) {
+      setError('Username and password are required');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/soap-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password,
+          securityToken: securityToken,
+          isSandbox,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Show user-friendly error message
+        const errorMsg = data.message || data.details || data.error || 'Login failed';
+        setError(errorMsg);
+        setIsLoading(false);
+        return;
+      }
+
+      // Success - redirect to dashboard
+      router.push('/dashboard');
+    } catch (err) {
+      setError('Connection failed. Please try again.');
+      setIsLoading(false);
+    }
+  };
+
+  const handleConnect = () => {
+    if (loginMethod === 'oauth') {
+      handleOAuthConnect();
+    } else {
+      handleSOAPConnect();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="max-w-md w-full">
@@ -87,6 +142,85 @@ export default function ConnectPage() {
             Authenticate with your Salesforce org to begin analysis
           </p>
 
+          {/* Login Method Toggle */}
+          <div className="mb-6">
+            <div className="flex rounded-lg bg-gray-100 p-1">
+              <button
+                onClick={() => setLoginMethod('oauth')}
+                disabled={isLoading}
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  loginMethod === 'oauth'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                OAuth (Recommended)
+              </button>
+              <button
+                onClick={() => setLoginMethod('soap')}
+                disabled={isLoading}
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  loginMethod === 'soap'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                Username/Password
+              </button>
+            </div>
+          </div>
+
+          {/* SOAP Login Form */}
+          {loginMethod === 'soap' && (
+            <div className="mb-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="your-email@example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Your password"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Security Token <span className="text-gray-500 text-xs">(Optional if IP whitelisted)</span>
+                </label>
+                <input
+                  type="text"
+                  value={securityToken}
+                  onChange={(e) => setSecurityToken(e.target.value)}
+                  placeholder="Security token"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isLoading}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Get your security token from: Setup → My Personal Information → Reset My Security Token
+                </p>
+                <p className="mt-1 text-xs text-blue-600">
+                  💡 Tip: If your IP address is whitelisted in Salesforce, you may not need a security token.
+                </p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
               <div className="flex items-start">
@@ -99,8 +233,8 @@ export default function ConnectPage() {
                   <div className="mt-3 p-2 bg-red-100 rounded text-xs text-red-800">
                     <strong>📋 Next Steps:</strong>
                     <ul className="list-disc list-inside mt-1 space-y-1">
-                      <li>Check the terminal running "npm run dev" for detailed error logs</li>
-                      <li>Look for "Token exchange failed:" messages</li>
+                      <li>Check the terminal running &quot;npm run dev&quot; for detailed error logs</li>
+                      <li>Look for &quot;Token exchange failed:&quot; messages</li>
                       <li>Verify Salesforce app settings match the configuration</li>
                     </ul>
                   </div>
@@ -116,6 +250,7 @@ export default function ConnectPage() {
                 checked={isSandbox}
                 onChange={(e) => setIsSandbox(e.target.checked)}
                 className="sr-only"
+                disabled={isLoading}
               />
               <div className="relative">
                 <div
@@ -149,28 +284,31 @@ export default function ConnectPage() {
           </button>
 
           <p className="mt-4 text-xs text-gray-500 text-center">
-            Your credentials are never stored. We only save access tokens securely
-            in server-side sessions.
+            {loginMethod === 'oauth' 
+              ? 'Your credentials are never stored. We only save access tokens securely in server-side sessions.'
+              : 'Your credentials are sent securely and only used for authentication. Session tokens are stored securely.'}
           </p>
 
-          {/* Debug Link */}
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <button
-              onClick={async () => {
-                try {
-                  const response = await fetch('/api/auth/debug');
-                  const data = await response.json();
-                  console.log('Auth Configuration:', data);
-                  alert(`Configuration Check:\n\nClient ID: ${data.config.clientId}\nHas Secret: ${data.config.hasClientSecret}\nRedirect URI: ${data.config.redirectUri}\nMatches Expected: ${data.matchesCallbackUrl ? '✅' : '❌'}`);
-                } catch (err) {
-                  console.error('Debug check failed:', err);
-                }
-              }}
-              className="text-xs text-blue-600 hover:text-blue-700 underline"
-            >
-              🔍 Check Configuration
-            </button>
-          </div>
+          {/* Debug Link - Only show for OAuth */}
+          {loginMethod === 'oauth' && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <button
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/auth/debug');
+                    const data = await response.json();
+                    console.log('Auth Configuration:', data);
+                    alert(`Configuration Check:\n\nClient ID: ${data.config.clientId}\nHas Secret: ${data.config.hasClientSecret}\nRedirect URI: ${data.config.redirectUri}\nMatches Expected: ${data.matchesCallbackUrl ? '✅' : '❌'}`);
+                  } catch (err) {
+                    console.error('Debug check failed:', err);
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 underline"
+              >
+                🔍 Check Configuration
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -184,5 +322,20 @@ export default function ConnectPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConnectPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <ConnectForm />
+    </Suspense>
   );
 }

@@ -11,6 +11,13 @@ const roboto = Roboto({
 export const metadata: Metadata = {
   title: process.env.NEXT_PUBLIC_APP_NAME || 'Org Analyzer',
   description: 'Salesforce Org Analysis and Migration Planning',
+  robots: 'index, follow',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({

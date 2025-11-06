@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useCallback } from 'react';
 import { MagnifyingGlassIcon, QuestionMarkCircleIcon, Squares2X2Icon } from '@heroicons/react/24/outline';
 
 interface HeaderProps {
@@ -8,13 +9,13 @@ interface HeaderProps {
   userInitial?: string;
 }
 
-export default function Header({ userName, userInitial = 'U' }: HeaderProps) {
+function Header({ userName, userInitial = 'U' }: HeaderProps) {
   const router = useRouter();
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/connect');
-  };
+  }, [router]);
 
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 z-50 flex items-center justify-between px-6">
@@ -48,3 +49,5 @@ export default function Header({ userName, userInitial = 'U' }: HeaderProps) {
     </header>
   );
 }
+
+export default Header;

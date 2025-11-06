@@ -23,7 +23,7 @@ const navigation = [
   { name: 'About', href: '/dashboard/about', icon: InformationCircleIcon },
 ];
 
-export default function Sidebar() {
+function Sidebar() {
   const pathname = usePathname();
 
   return (
@@ -64,3 +64,5 @@ export default function Sidebar() {
     </nav>
   );
 }
+
+export default Sidebar;

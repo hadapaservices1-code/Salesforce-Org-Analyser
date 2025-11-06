@@ -6,8 +6,13 @@ const API_VERSION = process.env.API_VERSION || 'v60.0';
 export async function sfGet(
   auth: SalesforceAuth,
   endpoint: string,
-  params?: Record<string, string>
+  params?: Record<string, string>,
+  abortSignal?: AbortSignal
 ): Promise<any> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = new URL(`${auth.instanceUrl}/services/data/${API_VERSION}${endpoint}`);
   
   if (params) {
@@ -22,6 +27,7 @@ export async function sfGet(
       Authorization: `Bearer ${auth.accessToken}`,
       'Content-Type': 'application/json',
     },
+    signal: abortSignal,
   });
 
   if (!response.ok) {
@@ -36,8 +42,13 @@ export async function sfGet(
 export async function sfPost(
   auth: SalesforceAuth,
   endpoint: string,
-  body: any
+  body: any,
+  abortSignal?: AbortSignal
 ): Promise<any> {
+  if (abortSignal?.aborted) {
+    throw new Error('Scan cancelled by user');
+  }
+
   const url = `${auth.instanceUrl}/services/data/${API_VERSION}${endpoint}`;
 
   const response = await fetch(url.toString(), {
@@ -47,6 +58,7 @@ export async function sfPost(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    signal: abortSignal,
   });
 
   if (!response.ok) {

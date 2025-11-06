@@ -1,11 +1,13 @@
-import { pgTable, text, timestamp, jsonb, uuid } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, uuid, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: text('email').notNull().unique(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  emailIdx: index('users_email_idx').on(table.email),
+}));
 
 export const orgs = pgTable('orgs', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -16,14 +18,20 @@ export const orgs = pgTable('orgs', {
   edition: text('edition').notNull(),
   refreshTokenEncrypted: text('refresh_token_encrypted'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  orgIdIdx: index('orgs_org_id_idx').on(table.orgId),
+  userIdIdx: index('orgs_user_id_idx').on(table.userId),
+}));
 
 export const scans = pgTable('scans', {
   id: uuid('id').defaultRandom().primaryKey(),
   orgId: uuid('org_id').references(() => orgs.id).notNull(),
   rawJson: jsonb('raw_json').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (table) => ({
+  orgIdIdx: index('scans_org_id_idx').on(table.orgId),
+  createdAtIdx: index('scans_created_at_idx').on(table.createdAt),
+}));
 
 export const usersRelations = relations(users, ({ many }) => ({
   orgs: many(orgs),

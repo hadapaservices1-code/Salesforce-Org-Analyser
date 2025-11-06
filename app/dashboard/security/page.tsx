@@ -60,6 +60,7 @@ interface SecurityData {
   blockers: Array<{
     type: string;
     severity: string;
+    object?: string;
     message: string;
     recommendation: string;
   }>;

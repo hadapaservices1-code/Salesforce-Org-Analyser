@@ -86,6 +86,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (!userRecord) {
+      return NextResponse.json(
+        { error: 'Failed to create or retrieve user record' },
+        { status: 500 }
+      );
+    }
+
     // Find or create org record
     let orgRecord = await db.query.orgs.findFirst({
       where: eq(schema.orgs.orgId, orgId),
@@ -112,6 +119,13 @@ export async function POST(request: NextRequest) {
           where: eq(schema.orgs.orgId, orgId),
         });
       }
+    }
+
+    if (!orgRecord) {
+      return NextResponse.json(
+        { error: 'Failed to create or retrieve org record' },
+        { status: 500 }
+      );
     }
 
     // Store scan
