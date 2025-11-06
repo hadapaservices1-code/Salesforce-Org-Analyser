@@ -12,6 +12,7 @@ import {
   ClockIcon,
   CheckCircleIcon,
   ExclamationCircleIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -19,13 +20,15 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 interface Scan {
   id: string;
   createdAt: string;
-  rawJson?: any;
+  hasData?: boolean;
 }
 
 export default function ReportsPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const { data, error, isLoading, mutate } = useSWR<{ scans: Scan[] }>('/api/scans', fetcher, {
-    refreshInterval: 60000,
+    refreshInterval: 5000, // Refresh every 5 seconds to catch new scans quickly
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
   });
 
   const scans = data?.scans || [];
@@ -37,7 +40,27 @@ export default function ReportsPage() {
       const response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error('Download failed');
+        // Try to get error message from response
+        let errorMessage = 'Download failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check content type to determine if it's an error JSON response
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        // Clone the response to read it as JSON first
+        const clonedResponse = response.clone();
+        const data = await clonedResponse.json();
+        if (data.error) {
+          throw new Error(data.error || data.details || 'Download failed');
+        }
       }
 
       const blob = await response.blob();
@@ -53,15 +76,17 @@ export default function ReportsPage() {
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download report. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to download report. Please try again.';
+      alert(errorMessage);
     } finally {
       setDownloading(null);
     }
   };
 
   const handleDownloadAll = async (format: 'xlsx') => {
-    if (scans.length === 0) {
-      alert('No scans available to download');
+    const availableScans = scans.filter(s => s.hasData);
+    if (availableScans.length === 0) {
+      alert('No completed scans available to download');
       return;
     }
 
@@ -71,7 +96,26 @@ export default function ReportsPage() {
       const response = await fetch(url);
       
       if (!response.ok) {
-        throw new Error('Download failed');
+        // Try to get error message from response
+        let errorMessage = 'Download failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch {
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check content type to determine if it's an error JSON response
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        // Clone the response to read it as JSON first
+        const clonedResponse = response.clone();
+        const data = await clonedResponse.json();
+        if (data.error) {
+          throw new Error(data.error || data.details || 'Download failed');
+        }
       }
 
       const blob = await response.blob();
@@ -85,7 +129,8 @@ export default function ReportsPage() {
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download error:', error);
-      alert('Failed to download all reports. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to download all reports. Please try again.';
+      alert(errorMessage);
     } finally {
       setDownloading(null);
     }
@@ -148,16 +193,27 @@ export default function ReportsPage() {
               Download comprehensive reports of your Salesforce org scans
             </p>
           </div>
-          {scans.length > 0 && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => handleDownloadAll('xlsx')}
-              disabled={downloading === 'all-xlsx'}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+              onClick={() => mutate()}
+              disabled={isLoading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+              title="Refresh scans list"
             >
-              <ArrowDownTrayIcon className="h-5 w-5" />
-              {downloading === 'all-xlsx' ? 'Downloading...' : 'Download All as Excel'}
+              <ArrowPathIcon className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? 'Refreshing...' : 'Refresh'}
             </button>
-          )}
+            {scans.length > 0 && (
+              <button
+                onClick={() => handleDownloadAll('xlsx')}
+                disabled={downloading === 'all-xlsx'}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+              >
+                <ArrowDownTrayIcon className="h-5 w-5" />
+                {downloading === 'all-xlsx' ? 'Downloading...' : 'Download All as Excel'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Summary Card */}
@@ -171,7 +227,7 @@ export default function ReportsPage() {
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <div className="text-3xl font-bold text-green-600 mb-2">
-                {formatNumber(scans.filter(s => s.rawJson).length)}
+                {formatNumber(scans.filter(s => s.hasData).length)}
               </div>
               <div className="text-sm text-gray-600">Completed Scans</div>
             </div>
@@ -187,8 +243,7 @@ export default function ReportsPage() {
         {/* Scans List */}
         <div className="space-y-4">
           {scans.map((scan) => {
-            const scanData = scan.rawJson;
-            const hasData = !!scanData;
+            const hasData = scan.hasData ?? false;
             
             return (
               <Card key={scan.id}>
@@ -216,52 +271,12 @@ export default function ReportsPage() {
                         <ClockIcon className="h-4 w-4" />
                         {formatDate(scan.createdAt)}
                       </div>
-                      {scanData && (
-                        <>
-                          <div className="flex items-center gap-1">
-                            <TableCellsIcon className="h-4 w-4" />
-                            {formatNumber(scanData.objects?.length || 0)} Objects
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <ExclamationCircleIcon className="h-4 w-4" />
-                            {formatNumber(scanData.blockers?.length || 0)} Blockers
-                          </div>
-                        </>
+                      {hasData && (
+                        <div className="text-sm text-gray-500 italic">
+                          Click download to view report details
+                        </div>
                       )}
                     </div>
-
-                    {scanData && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <div className="text-gray-500">Objects</div>
-                          <div className="font-medium text-gray-900">
-                            {formatNumber(scanData.objects?.length || 0)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Automations</div>
-                          <div className="font-medium text-gray-900">
-                            {formatNumber(
-                              (scanData.flows?.length || 0) +
-                              (scanData.triggers?.length || 0) +
-                              (scanData.validationRules?.length || 0)
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Profiles</div>
-                          <div className="font-medium text-gray-900">
-                            {formatNumber(scanData.profiles?.length || 0)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-gray-500">Users</div>
-                          <div className="font-medium text-gray-900">
-                            {formatNumber(scanData.orgInfo?.userCount || 0)}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   <div className="ml-6 flex flex-col gap-2">
@@ -273,7 +288,7 @@ export default function ReportsPage() {
                           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 whitespace-nowrap"
                         >
                           <DocumentArrowDownIcon className="h-4 w-4" />
-                          {downloading === `${scan.id}-xlsx` ? 'Downloading...' : 'Excel'}
+                          {downloading === `${scan.id}-xlsx` ? 'Downloading...' : 'Download Excel'}
                         </button>
                         <button
                           onClick={() => handleDownload(scan.id, 'json')}
@@ -281,7 +296,7 @@ export default function ReportsPage() {
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 whitespace-nowrap"
                         >
                           <DocumentTextIcon className="h-4 w-4" />
-                          {downloading === `${scan.id}-json` ? 'Downloading...' : 'JSON'}
+                          {downloading === `${scan.id}-json` ? 'Downloading...' : 'Download JSON'}
                         </button>
                         <button
                           onClick={() => handleDownload(scan.id, 'md')}
@@ -289,7 +304,7 @@ export default function ReportsPage() {
                           className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium flex items-center gap-2 whitespace-nowrap"
                         >
                           <DocumentTextIcon className="h-4 w-4" />
-                          {downloading === `${scan.id}-md` ? 'Downloading...' : 'Markdown'}
+                          {downloading === `${scan.id}-md` ? 'Downloading...' : 'Download Markdown'}
                         </button>
                       </>
                     ) : (

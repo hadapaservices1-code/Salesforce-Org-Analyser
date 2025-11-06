@@ -26,9 +26,21 @@ export async function GET(request: NextRequest) {
         );
       }
 
+      // Filter out scans without valid data
+      const validScans = scans
+        .map(s => s.rawJson as ScanOutput)
+        .filter(scan => scan && scan.orgInfo && scan.orgInfo.id);
+
+      if (validScans.length === 0) {
+        return NextResponse.json(
+          { error: 'No scans with valid data found' },
+          { status: 404 }
+        );
+      }
+
       // Generate Excel with all scans
       const { generateAllScansExcel } = await import('@/server/reports/excelGenerator');
-      const excelBuffer = generateAllScansExcel(scans.map(s => s.rawJson as ScanOutput));
+      const excelBuffer = generateAllScansExcel(validScans);
 
       return new NextResponse(new Uint8Array(excelBuffer), {
         headers: {
@@ -58,28 +70,54 @@ export async function GET(request: NextRequest) {
 
     const scanOutput = scan.rawJson as ScanOutput;
 
+    // Validate scan data
+    if (!scanOutput || !scanOutput.orgInfo || !scanOutput.orgInfo.id) {
+      return NextResponse.json(
+        { error: 'Scan data is incomplete or invalid' },
+        { status: 400 }
+      );
+    }
+
     if (format === 'md') {
-      const markdown = generateMarkdownRunbook(scanOutput);
-      return new NextResponse(markdown, {
-        headers: {
-          'Content-Type': 'text/markdown',
-          'Content-Disposition': `attachment; filename="scan-${scanId}.md"`,
-        },
-      });
+      try {
+        const markdown = generateMarkdownRunbook(scanOutput);
+        return new NextResponse(markdown, {
+          headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            'Content-Disposition': `attachment; filename="scan-${scanId}.md"`,
+          },
+        });
+      } catch (error) {
+        console.error('Markdown generation error:', error);
+        return NextResponse.json(
+          { error: 'Failed to generate markdown report', details: error instanceof Error ? error.message : 'Unknown error' },
+          { status: 500 }
+        );
+      }
     }
 
     if (format === 'xlsx') {
-      const excelBuffer = generateExcelReport(scanOutput, scanId);
-      return new NextResponse(new Uint8Array(excelBuffer), {
-        headers: {
-          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="scan-${scanId}.xlsx"`,
-        },
-      });
+      try {
+        const excelBuffer = generateExcelReport(scanOutput, scanId);
+        return new NextResponse(new Uint8Array(excelBuffer), {
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="scan-${scanId}.xlsx"`,
+          },
+        });
+      } catch (error) {
+        console.error('Excel generation error:', error);
+        return NextResponse.json(
+          { error: 'Failed to generate Excel report', details: error instanceof Error ? error.message : 'Unknown error' },
+          { status: 500 }
+        );
+      }
     }
 
+    // JSON format
     return NextResponse.json(scanOutput, {
       headers: {
+        'Content-Type': 'application/json; charset=utf-8',
         'Content-Disposition': `attachment; filename="scan-${scanId}.json"`,
       },
     });

@@ -17,21 +17,34 @@ export async function GET(request: NextRequest) {
     // Get org ID from auth
     // For now, get all scans (would filter by org in production)
     try {
-      // Only fetch metadata, not full rawJson to reduce payload size
+      // Fetch scans with rawJson to check if data exists, but exclude it from response
       const scans = await db.query.scans.findMany({
         orderBy: [desc(schema.scans.createdAt)],
         limit: 50,
-        columns: {
-          id: true,
-          orgId: true,
-          createdAt: true,
-          // Exclude rawJson from initial fetch - it's large and only needed when viewing details
-        },
       });
 
-      return NextResponse.json({ scans }, {
+      // Transform to include hasData flag without sending full rawJson
+      const scansWithFlag = scans.map(scan => {
+        const rawJson = scan.rawJson as any;
+        // Check if rawJson exists and has the required structure
+        const hasData = !!rawJson && (
+          rawJson.orgInfo !== undefined ||
+          (rawJson.objects && Array.isArray(rawJson.objects)) ||
+          (rawJson.scannedAt !== undefined)
+        );
+        return {
+          id: scan.id,
+          orgId: scan.orgId,
+          createdAt: scan.createdAt,
+          hasData,
+        };
+      });
+
+      return NextResponse.json({ scans: scansWithFlag }, {
         headers: {
-          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60, max-age=60',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
           'X-Content-Type-Options': 'nosniff',
         },
       });
@@ -46,15 +59,29 @@ export async function GET(request: NextRequest) {
           const scans = await db.query.scans.findMany({
             orderBy: [desc(schema.scans.createdAt)],
             limit: 50,
-            columns: {
-              id: true,
-              orgId: true,
-              createdAt: true,
-            },
           });
-          return NextResponse.json({ scans }, {
+          
+          const scansWithFlag = scans.map(scan => {
+            const rawJson = scan.rawJson as any;
+            // Check if rawJson exists and has the required structure
+            const hasData = !!rawJson && (
+              rawJson.orgInfo !== undefined ||
+              (rawJson.objects && Array.isArray(rawJson.objects)) ||
+              (rawJson.scannedAt !== undefined)
+            );
+            return {
+              id: scan.id,
+              orgId: scan.orgId,
+              createdAt: scan.createdAt,
+              hasData,
+            };
+          });
+          
+          return NextResponse.json({ scans: scansWithFlag }, {
             headers: {
-              'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60, max-age=60',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
               'X-Content-Type-Options': 'nosniff',
             },
           });
