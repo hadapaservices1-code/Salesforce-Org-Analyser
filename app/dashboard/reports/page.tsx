@@ -15,7 +15,14 @@ import {
   ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = async (url: string) => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}: ${response.statusText}` }));
+    throw errorData;
+  }
+  return response.json();
+};
 
 interface Scan {
   id: string;
@@ -26,12 +33,27 @@ interface Scan {
 export default function ReportsPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const { data, error, isLoading, mutate } = useSWR<{ scans: Scan[] }>('/api/scans', fetcher, {
-    refreshInterval: 5000, // Refresh every 5 seconds to catch new scans quickly
+    refreshInterval: 10000, // Refresh every 10 seconds (optimized backend makes this fast)
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
+    onError: (err) => {
+      console.error('[Reports Page] Error fetching scans:', err);
+    },
+    onSuccess: (data) => {
+      console.log('[Reports Page] Successfully loaded scans:', data?.scans?.length || 0);
+    },
   });
 
   const scans = data?.scans || [];
+  
+  // Debug logging
+  if (data) {
+    console.log('[Reports Page] Current scans data:', {
+      total: scans.length,
+      withData: scans.filter(s => s.hasData).length,
+      withoutData: scans.filter(s => !s.hasData).length,
+    });
+  }
 
   const handleDownload = async (scanId: string, format: 'json' | 'md' | 'xlsx') => {
     setDownloading(`${scanId}-${format}`);
@@ -156,7 +178,43 @@ export default function ReportsPage() {
     );
   }
 
-  if (error || !scans || scans.length === 0) {
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="google-card">
+            <div className="text-center py-12">
+              <ExclamationCircleIcon className="h-12 w-12 mx-auto mb-4 text-red-400" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Error Loading Scans
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                {typeof error === 'object' && error !== null && 'error' in error 
+                  ? (error as any).error || 'Failed to load scans'
+                  : 'Failed to load scans. Please try again.'}
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => mutate()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm font-medium"
+                >
+                  Reload Page
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!scans || scans.length === 0) {
     return (
       <div className="p-8">
         <div className="max-w-6xl mx-auto">
@@ -167,7 +225,7 @@ export default function ReportsPage() {
                 No Scans Available
               </h3>
               <p className="text-sm text-gray-600 mb-4">
-                {error?.error || 'Run a scan first to generate reports'}
+                Run a scan first to generate reports
               </p>
               <button
                 onClick={() => mutate()}

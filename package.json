@@ -10,7 +10,8 @@
     "db:generate": "drizzle-kit generate:pg",
     "db:migrate": "drizzle-kit up:pg",
     "db:init": "curl -X POST http://localhost:3000/api/db/init || echo 'Server must be running. Start with: npm run dev'",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "cleanup:scans": "tsx scripts/cleanup-scans.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
@@ -44,7 +45,9 @@
   "devDependencies": {
     "@types/node": "^24.10.0",
     "critters": "^0.0.23",
+    "dotenv": "^17.2.3",
     "eslint": "^8.57.0",
-    "eslint-config-next": "^15.0.0"
+    "eslint-config-next": "^15.0.0",
+    "tsx": "^4.20.6"
   }
 }

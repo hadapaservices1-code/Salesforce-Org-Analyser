@@ -4,6 +4,8 @@ import { sfQuery } from '../salesforce/tooling';
 import { logger } from '@/lib/logger';
 import { ProgressCallback } from '../composeScan';
 
+const API_VERSION = process.env.API_VERSION || 'v60.0';
+
 export async function scanOrgInfo(auth: SalesforceAuth, abortSignal?: AbortSignal, onProgress?: ProgressCallback): Promise<OrgInfo> {
   try {
     if (abortSignal?.aborted) {
@@ -134,16 +136,48 @@ export async function scanOrgInfo(auth: SalesforceAuth, abortSignal?: AbortSigna
       if (abortSignal?.aborted) {
         throw new Error('Scan cancelled by user');
       }
-      const userData = await sfQuery(auth, 
-        "SELECT COUNT() FROM User WHERE IsActive = true",
-        abortSignal
-      );
-      userCount = typeof userData?.[0]?.expr0 === 'number' ? userData[0].expr0 : 0;
+      // Use COUNT(Id) instead of COUNT() for better compatibility
+      const url = `${auth.instanceUrl}/services/data/${API_VERSION}/query?q=${encodeURIComponent("SELECT COUNT(Id) FROM User WHERE IsActive = true")}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${auth.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        signal: abortSignal,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // COUNT queries return the result in records[0].expr0 or we can use totalSize
+        // Try multiple ways to get the count
+        if (data.records && data.records.length > 0) {
+          const record = data.records[0];
+          // Try expr0 first (standard COUNT() result)
+          if (typeof record.expr0 === 'number') {
+            userCount = record.expr0;
+          } else if (typeof record.count === 'number') {
+            userCount = record.count;
+          } else if (data.totalSize !== undefined && typeof data.totalSize === 'number') {
+            userCount = data.totalSize;
+          }
+        } else if (data.totalSize !== undefined && typeof data.totalSize === 'number') {
+          userCount = data.totalSize;
+        }
+        
+        logger.debug({ userCount, data }, 'Retrieved user count');
+      } else {
+        const errorText = await response.text();
+        logger.warn({ status: response.status, error: errorText }, 'Failed to retrieve user count from query');
+        
+      }
     } catch (error) {
       if (error instanceof Error && error.message === 'Scan cancelled by user') {
         throw error;
       }
       logger.warn({ error }, 'Failed to retrieve user count');
+      
     }
 
     // Get license information
@@ -165,6 +199,15 @@ export async function scanOrgInfo(auth: SalesforceAuth, abortSignal?: AbortSigna
               Total: license.TotalLicenses || 0,
               Used: license.UsedLicenses || 0,
             };
+            
+            // Fallback: If user count is still 0, try to get it from User licenses
+            if (userCount === 0 && (license.Name === 'Salesforce' || license.Name === 'Salesforce Platform' || license.Name?.toLowerCase().includes('user'))) {
+              // Use UsedLicenses as a proxy for active user count
+              if (license.UsedLicenses && license.UsedLicenses > 0) {
+                userCount = license.UsedLicenses;
+                logger.info({ userCount, licenseName: license.Name }, 'Got user count from license');
+              }
+            }
           }
         }
       }
@@ -196,13 +239,37 @@ export async function scanOrgInfo(auth: SalesforceAuth, abortSignal?: AbortSigna
                   Total: license.TotalLicenses || 0,
                   Used: license.UsedLicenses || 0,
                 };
+                
+                // Fallback: If user count is still 0, try to get it from User licenses
+                if (userCount === 0 && (licenseName === 'Salesforce' || licenseName === 'Salesforce Platform' || licenseName?.toLowerCase().includes('user'))) {
+                  if (license.UsedLicenses && license.UsedLicenses > 0) {
+                    userCount = license.UsedLicenses;
+                    logger.info({ userCount, licenseName }, 'Got user count from alternative license query');
+                  }
+                }
               } catch (e) {
                 // Fallback to ID-based name
-                licenses[`License-${license.Id.substring(0, 8)}`] = {
+                const licenseName = `License-${license.Id.substring(0, 8)}`;
+                licenses[licenseName] = {
                   Total: license.TotalLicenses || 0,
                   Used: license.UsedLicenses || 0,
                 };
+                
+                // Fallback: If user count is still 0, try to get it from UsedLicenses
+                if (userCount === 0 && license.UsedLicenses && license.UsedLicenses > 0) {
+                  // Sum all used licenses as a fallback
+                  userCount = Math.max(userCount, license.UsedLicenses);
+                }
               }
+            }
+          }
+          
+          // Final fallback: Sum all used licenses if user count is still 0
+          if (userCount === 0 && Object.keys(licenses).length > 0) {
+            const totalUsed = Object.values(licenses).reduce((sum, license) => sum + (license.Used || 0), 0);
+            if (totalUsed > 0) {
+              userCount = totalUsed;
+              logger.info({ userCount }, 'Got user count from sum of all used licenses');
             }
           }
         } catch (e) {

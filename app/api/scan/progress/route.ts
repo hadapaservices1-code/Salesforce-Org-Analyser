@@ -98,6 +98,44 @@ export async function GET(request: NextRequest) {
           clearInterval(intervalId);
           intervalId = null;
         }
+
+        // Verify scan was saved successfully before sending complete event
+        if (result && result.scanId) {
+          // Double-check the scan exists in database
+          try {
+            const verifyScan = await db.query.scans.findFirst({
+              where: eq(schema.scans.id, result.scanId),
+            });
+            
+            if (!verifyScan) {
+              logger.error({ scanId: result.scanId }, 'Scan not found in database after completion');
+              sendEvent({ 
+                type: 'error', 
+                message: 'Scan completed but not found in database. Please refresh the reports page.' 
+              });
+              isClosed = true;
+              controller.close();
+              return;
+            }
+
+            if (!verifyScan.rawJson) {
+              logger.error({ scanId: result.scanId }, 'Scan found but rawJson is missing');
+              sendEvent({ 
+                type: 'error', 
+                message: 'Scan completed but data is missing. Please try scanning again.' 
+              });
+              isClosed = true;
+              controller.close();
+              return;
+            }
+
+            logger.info({ scanId: result.scanId }, 'Scan verified in database before sending complete event');
+          } catch (verifyError) {
+            logger.error({ error: verifyError, scanId: result.scanId }, 'Error verifying scan in database');
+            // Continue anyway - the scan might still be valid
+          }
+        }
+        
         sendEvent({ type: 'complete', result });
         isClosed = true;
         controller.close();
@@ -239,10 +277,37 @@ export async function POST(request: NextRequest) {
           throw new Error('Failed to create or retrieve org record');
         }
 
+        // Validate scan output before saving
+        if (!scanOutput || !scanOutput.orgInfo || !scanOutput.orgInfo.id) {
+          throw new Error('Invalid scan output: missing required orgInfo');
+        }
+
         const [newScan] = await db.insert(schema.scans).values({
           orgId: orgRecord.id,
           rawJson: scanOutput as any,
         }).returning();
+
+        if (!newScan || !newScan.id) {
+          throw new Error('Failed to save scan to database');
+        }
+
+        // Verify the scan was saved by querying it back
+        const verifyScan = await db.query.scans.findFirst({
+          where: eq(schema.scans.id, newScan.id),
+        });
+
+        if (!verifyScan) {
+          logger.error({ scanId: newScan.id }, 'Scan saved but not found on verification');
+          throw new Error('Scan saved but verification failed');
+        }
+
+        // Verify rawJson is properly stored
+        if (!verifyScan.rawJson) {
+          logger.error({ scanId: newScan.id }, 'Scan saved but rawJson is missing');
+          throw new Error('Scan saved but rawJson is missing');
+        }
+
+        logger.info({ scanId: newScan.id, orgId: orgId }, 'Scan saved and verified successfully');
 
         return {
           scanId: newScan.id,

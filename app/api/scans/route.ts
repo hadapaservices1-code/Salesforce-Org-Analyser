@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, schema } from '@/lib/db';
+import { db, schema, dbClient } from '@/lib/db';
 import { eq, desc } from 'drizzle-orm';
 import { getSalesforceAuth } from '@/lib/session';
 
@@ -17,28 +17,34 @@ export async function GET(request: NextRequest) {
     // Get org ID from auth
     // For now, get all scans (would filter by org in production)
     try {
-      // Fetch scans with rawJson to check if data exists, but exclude it from response
-      const scans = await db.query.scans.findMany({
-        orderBy: [desc(schema.scans.createdAt)],
-        limit: 50,
-      });
+      // Use optimized query to check if rawJson exists without loading the full data
+      // This is much faster than loading potentially large JSONB columns (can be several MB per scan)
+      // Using raw SQL to avoid loading the entire rawJson column into memory
+      const scans = await dbClient`
+        SELECT 
+          id,
+          org_id as "orgId",
+          created_at as "createdAt",
+          CASE 
+            WHEN raw_json IS NOT NULL AND raw_json::text != 'null' AND raw_json::text != '{}' THEN true 
+            ELSE false 
+          END as "hasData"
+        FROM scans
+        ORDER BY created_at DESC
+        LIMIT 50
+      `;
 
-      // Transform to include hasData flag without sending full rawJson
-      const scansWithFlag = scans.map(scan => {
-        const rawJson = scan.rawJson as any;
-        // Check if rawJson exists and has the required structure
-        const hasData = !!rawJson && (
-          rawJson.orgInfo !== undefined ||
-          (rawJson.objects && Array.isArray(rawJson.objects)) ||
-          (rawJson.scannedAt !== undefined)
-        );
-        return {
-          id: scan.id,
-          orgId: scan.orgId,
-          createdAt: scan.createdAt,
-          hasData,
-        };
-      });
+      console.log(`[Scans API] Found ${scans.length} scans in database`);
+
+      // Transform to match expected format
+      const scansWithFlag = scans.map((scan: any) => ({
+        id: scan.id,
+        orgId: scan.orgId,
+        createdAt: scan.createdAt,
+        hasData: scan.hasData,
+      }));
+
+      console.log(`[Scans API] Returning ${scansWithFlag.length} scans, ${scansWithFlag.filter(s => s.hasData).length} with data`);
 
       return NextResponse.json({ scans: scansWithFlag }, {
         headers: {
@@ -55,27 +61,27 @@ export async function GET(request: NextRequest) {
         const initialized = await initializeDatabase();
         
         if (initialized) {
-          // Retry after initialization
-          const scans = await db.query.scans.findMany({
-            orderBy: [desc(schema.scans.createdAt)],
-            limit: 50,
-          });
+          // Retry after initialization with optimized query
+          const scans = await dbClient`
+            SELECT 
+              id,
+              org_id as "orgId",
+              created_at as "createdAt",
+              CASE 
+                WHEN raw_json IS NOT NULL AND raw_json::text != 'null' AND raw_json::text != '{}' THEN true 
+                ELSE false 
+              END as "hasData"
+            FROM scans
+            ORDER BY created_at DESC
+            LIMIT 50
+          `;
           
-          const scansWithFlag = scans.map(scan => {
-            const rawJson = scan.rawJson as any;
-            // Check if rawJson exists and has the required structure
-            const hasData = !!rawJson && (
-              rawJson.orgInfo !== undefined ||
-              (rawJson.objects && Array.isArray(rawJson.objects)) ||
-              (rawJson.scannedAt !== undefined)
-            );
-            return {
-              id: scan.id,
-              orgId: scan.orgId,
-              createdAt: scan.createdAt,
-              hasData,
-            };
-          });
+          const scansWithFlag = scans.map((scan: any) => ({
+            id: scan.id,
+            orgId: scan.orgId,
+            createdAt: scan.createdAt,
+            hasData: scan.hasData,
+          }));
           
           return NextResponse.json({ scans: scansWithFlag }, {
             headers: {
